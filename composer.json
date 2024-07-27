@@ -1,0 +1,58 @@
+{
+    "name": "hoangnh/solana",
+    "description": "Your Package Description here",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [],
+    "authors": [
+        {
+            "name": "hoangnh",
+            "email": "chimnhokhonglo@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable":true,
+    "autoload": {
+        "psr-4": {
+            "Hoangnh\\Solana\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+            
+        }
+    },
+    "config": {
+        "preferred-install": "dist",
+        "sort-packages": true,
+        "allow-plugins": {
+            "symfony/thanks": true
+        }
+    },
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-coverage": "vendor/bin/phpunit --coverage-html coverage"
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Hoangnh\\Solana\\SolanaServiceProvider"
+            ],
+            "aliases": {
+                "Hoangnh": "Hoangnh\\Solana\\SolanaFacade"
+            }
+        }
+    },
+    "require-dev": {
+        "illuminate/support": "^10.48",
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^8.24",
+        "phpunit/phpunit": "10.1",
+        "symfony/thanks": "^1.3",
+        "tightenco/collect": "^9.52"
+    },
+    "require": {
+        "symfony/http-client": "^6.4"
+    }
+}
