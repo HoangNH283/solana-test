@@ -15,6 +15,7 @@ class CreateWalletsSolanaAddressTable extends Migration
             $table->id();
             $table->string('address')->unique();
             $table->unsignedBigInteger('user_id');
+            $table->string('secret_key');
             $table->timestamps();
         });
 

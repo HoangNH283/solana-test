@@ -11,7 +11,7 @@ class SolanaAddress extends Model
 
     protected $table = 'wallets_solana_address';
 
-    protected $fillable = ['address', 'user_id'];
+    protected $fillable = ['address', 'user_id','secret_key'];
 
     public function transactions()
     {

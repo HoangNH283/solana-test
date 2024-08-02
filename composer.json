@@ -44,15 +44,18 @@
             }
         }
     },
-    "require-dev": {
-        "illuminate/support": "^10.48",
-        "mockery/mockery": "^1.6",
-        "orchestra/testbench": "^8.24",
-        "phpunit/phpunit": "10.1",
-        "symfony/thanks": "^1.3",
-        "tightenco/collect": "^9.52"
-    },
     "require": {
-        "symfony/http-client": "^6.4"
+        "attestto/solana-php-sdk": "dev-master",
+        "guzzlehttp/guzzle": "^7.9",
+        "illuminate/support": "^9.52",
+        "paragonie/sodium_compat": "^1.21",
+        "stephenhill/base58": "^1.1",
+        "tightenco/solana-php-sdk": "^0.3.2",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "require-dev": {
+        "mockery/mockery": "^1.6",
+        "phpunit/php-code-coverage": "^11.0",
+        "phpunit/phpunit": "^11.2"
     }
 }

@@ -1,6 +1,7 @@
 <?php
 
 namespace Hoangnh\Solana\Services;
+require 'vendor/autoload.php';
 
 // use GuzzleHttp\Client;
 use Hoangnh\Solana\Models\SolanaAddress;
@@ -9,18 +10,30 @@ use Hoangnh\Solana\Models\SolanaDeposit;
 use Hoangnh\Solana\Models\SolanaWithdraw;
 use Exception;
 use Illuminate\Support\Facades\Log;
+
+use Tighten\SolanaPhpSdk\Connection;
+use Tighten\SolanaPhpSdk\SolanaRpcClient;
+use Tighten\SolanaPhpSdk\KeyPair;
+use Tighten\SolanaPhpSdk\PublicKey;
+use Tighten\SolanaPhpSdk\Programs\SystemProgram;
+use Tighten\SolanaPhpSdk\Transaction;
+
 class SolanaService
 {
-    public function createAddress($userId)
+    protected $lamports = 1000000000;
+    protected $url = 'https://api.devnet.solana.com';
+    public function createAddress()
     {
-        // Logic to generate Solana address
-        $address = 'Generated_Solana_Address'; // Replace with actual address generation logic
-        $address = $this->generateRandomHex();
+        // Tạo Keypair mới
+        $keypair = Keypair::generate();
 
-        return SolanaAddress::create([
-            'address' => $address,
-            'user_id' => $userId,
-        ]);
+        // Lấy địa chỉ công khai và khóa riêng
+        $publicKey = $keypair->getPublicKey()->toBase58();
+        $secretKey = $keypair->getSecretKey();
+        return [
+            'publicKey'=> $publicKey,
+            'secretKey'=> $secretKey->toArray(),
+        ];
     }
 
     public function deposit($addressId, $amount)
@@ -60,59 +73,35 @@ class SolanaService
         return $withdraw;
     }
 
-    public function transfer($fromAddressId, $toAddress, $amount)
+    public function transfer($fromSecretKey, $toAddress, $amount)
     {
-        if (!$this->isValidSolanaAddress($toAddress)) {
-            throw new Exception('Invalid Solana address');
+        $client = new SolanaRpcClient(SolanaRpcClient::DEVNET_ENDPOINT);
+        $connection = new Connection($client);
+        $fromKeyPair = KeyPair::fromSecretKey($fromSecretKey);
+        $toPublicKey = new PublicKey($toAddress);
+
+        // Lấy recentBlockhash
+        $recentBlockhashResponse = $connection->getRecentBlockhash();
+        
+        if (!isset($recentBlockhashResponse['blockhash'])) {
+            throw new Exception('Failed to retrieve recent blockhash');
         }
+        $recentBlockhash = $recentBlockhashResponse['blockhash'];
 
-        // Ghi lại giao dịch vào bảng transactions
-        $fromAddress = SolanaAddress::findOrFail($fromAddressId);
-        $balance = $this->getBalance($fromAddress->address);
-        // Kiểm tra số dư của ví gửi
-        if ($balance < $amount) {
-            throw new Exception('Insufficient balance');
-        }
-
-        // Khởi tạo giao dịch và ghi lại trạng thái ban đầu là "pending"
-        $transaction = $this->recordTransaction($fromAddressId, -$amount, 'pending','transfer');
-
-        try {
-            // Thực hiện giao dịch trên blockchain Solana
-            $transactionResult = $this->executeSolanaTransfer($fromAddress->address, $toAddress, $amount);
-
-            // Cập nhật trạng thái giao dịch dựa trên kết quả thực hiện
-            if ($transactionResult['status'] === 'success') {
-                $transaction->status = 'completed';
-                $transaction->sol_transaction_id = $transactionResult['sol_transaction_id'];
-                $transaction->save();
-
-                // Cập nhật số dư của ví gửi và ghi lại chi tiết giao dịch cho cả ví gửi và ví nhận
-                $balance -= $amount;
-                $fromAddress->save();
-
-                // Nếu ví nhận là địa chỉ ví bên ngoài, ghi lại thông tin giao dịch ngoài hệ thống
-                if (!$this->isInternalAddress($toAddress)) {
-                    // $this->recordTransactionExternal($toAddress, $amount, 'completed', $transactionResult['transaction_id']);
-                } else {
-                    // Nếu ví nhận là địa chỉ nội bộ, cập nhật số dư và ghi lại chi tiết giao dịch
-                    $toAddressModel = SolanaAddress::where('address', $toAddress)->first();
-                    // $toAddressModel->balance += $amount;
-                    // $toAddressModel->save();
-                    $this->recordTransaction($toAddressModel->id, $amount,'completed', 'transfer', $transactionResult['sol_transaction_id']);
-                }
-            } else {
-                $transaction->status = 'failed';
-                $transaction->save();
-                throw new Exception('Transaction failed on Solana blockchain');
-            }
-        } catch (Exception $e) {
-            $transaction->status = 'failed';
-            $transaction->save();
-            throw $e;
-        }
-
-        return $transaction;
+        $instruction = SystemProgram::transfer(
+            $fromKeyPair->getPublicKey(),
+            $toPublicKey,
+            $amount * $this->lamports
+        );
+        
+        // $transaction = new Transaction(null, null, $fromKeyPair->getPublicKey()); 
+        $transaction = new Transaction();
+        $transaction->recentBlockhash = $recentBlockhash;
+        $transaction->feePayer = $fromKeyPair->getPublicKey();
+        $transaction->add($instruction);
+        // $transaction->sign($fromKeyPair);
+        $txHash = $connection->sendTransaction($transaction, [$fromKeyPair]);
+        return $txHash;
     }
 
     protected function isValidSolanaAddress($address)
@@ -122,10 +111,9 @@ class SolanaService
         return $result;
         
     }
+
     public function getBalance($address)
     {
-        $url = 'https://api.mainnet-beta.solana.com';
-
         $postData = [
             'jsonrpc' => '2.0',
             'id' => 1,
@@ -136,7 +124,7 @@ class SolanaService
         ];
 
         $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_URL, $this->url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
         curl_setopt($ch, CURLOPT_TIMEOUT, 30);
         curl_setopt($ch, CURLOPT_POST, 1);
@@ -163,6 +151,81 @@ class SolanaService
         } else {
             Log::error('Failed to retrieve balance', ['response' => $response]);
             throw new Exception('Failed to retrieve balance');
+        }
+    }
+
+    public function getSignaturesForAddress($address)
+    {
+        $postData = [
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'method' => 'getSignaturesForAddress',
+            'params' => [
+                $address,
+                ['limit' => 1]
+            ]
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $this->url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json'
+        ]);
+
+        $response = curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            Log::error('cURL error: ' . curl_error($ch));
+            throw new Exception('Failed to retrieve signature: ' . curl_error($ch));
+        }
+        curl_close($ch);
+        $responseData = json_decode($response, true);
+        if (isset($responseData['result'][0]['signature'])) {
+            return $responseData;
+        } else {
+            Log::error('Failed to retrieve signature', ['response' => $response]);
+            throw new Exception('Failed to retrieve signature');
+        }
+    }
+
+    public function requestAirdrop($address, $amount){
+        $postData = [
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'method' => 'requestAirdrop',
+            'params' => [
+                $address,
+                $amount * $this->lamports
+            ]
+        ];
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $this->url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json'
+        ]);
+
+        $response = curl_exec($ch);
+
+        if (curl_errno($ch)) {
+            Log::error('cURL error: ' . curl_error($ch));
+            throw new Exception('Failed to retrieve airdrop: ' . curl_error($ch));
+        }
+        curl_close($ch);
+        $responseData = json_decode($response, true);
+        if (isset($responseData['result'])) {
+            return $responseData;
+        } else {
+            Log::error('Failed to retrieve airdrop', ['response' => $response]);
+            throw new Exception($responseData['error']['message']);
         }
     }
 
